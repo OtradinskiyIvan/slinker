@@ -1,17 +1,15 @@
-from dataclasses import dataclass
-from utils.strings import rand_str
+from utils.utils_random import random_alfanum
+
 
 class LinkService:
-    def __init__(self):
-        self.links: dict[str, str] = {}
+    def __init__(self) -> None:
+        self.short_link_to_real_link: dict[str, str] = {}
 
     def create_link(self, link: str) -> str:
-        short_link = rand_str(lenght=5)
-        self.links[short_link] = link
+        short_link = random_alfanum(5)
+        self.short_link_to_real_link[short_link] = link
 
         return short_link
 
-    def get_link(self, long_link: str) -> str | None:
-        return self.links.get(long_link)
-
-
+    def get_real_link(self, link: str) -> str | None:
+        return self.short_link_to_real_link.get(link)
