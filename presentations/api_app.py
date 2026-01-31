@@ -1,9 +1,14 @@
-from idlelib.autocomplete import TRY_A
-
 from fastapi import FastAPI, HTTPException, Response, status, Request
 from pydantic import BaseModel
 from requests import RequestException
-from urllib3.exceptions import RequestError
+
+from sqlalchemy.orm import Session
+
+from infrastructure.database import db_dependency
+from typing import Annotated
+from fastapi import Depends
+from infrastructure.database import get_db
+# from infrastructure.database import db_dependency, get_db
 
 from services.link_service import LinkService
 import time
@@ -11,20 +16,30 @@ import requests
 from loguru import logger
 
 
-# TODO: link-str -> link-HttpUrl, IsValid(422 Exception)
+# TODO:
+
+db_dependency = Annotated[Session, Depends(get_db)]
 
 def create_app() -> FastAPI:
     app = FastAPI()
-    short_link_service = LinkService()
+    # short_link_service = LinkService(db_dependency)
 
     class PutLink(BaseModel):
+        link: str
+
+    class LinkResponse(BaseModel):
         link: str
 
     def _service_link_to_real(short_link: str) -> str:
         return f"http://localhost:8000/{short_link}"
 
     @app.post("/link")
-    def create_link(put_link_request: PutLink) -> PutLink:
+    def create_link(
+            put_link_request: PutLink,
+            db : db_dependency
+    ) -> LinkResponse:
+        short_link_service = LinkService(db)
+
         inp_link = put_link_request.link
         url = inp_link if inp_link.startswith(('https://', 'http://')) else 'https://' + inp_link
 
@@ -47,6 +62,7 @@ def create_app() -> FastAPI:
         t0 = time.time()
 
         response = await call_next(request)
+
         elapsed_ms = round((time.time() - t0) * 1000, 2)
         response.headers["X-Process-Time"] = str(elapsed_ms)
         logger.debug("{} {} done in {}ms", request.method, request.url, elapsed_ms)
@@ -55,11 +71,25 @@ def create_app() -> FastAPI:
 
 
     @app.get("/{link}")
-    def get_link(link: str) -> Response:
+    def get_link(link: str, request: Request, db: db_dependency) -> Response:
+        short_link_service = LinkService(db)
         real_link = short_link_service.get_real_link(link)
 
         if real_link is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Short link not found:(")
+
+        link_obj = short_link_service.get_link_by_short(link)
+        if link_obj:
+            # Логируем использование
+            user_ip = request.client.host if request.client else "unknown"
+            user_agent = request.headers.get('user-agent', '')
+
+            short_link_service.log_usage(
+                link_id=link_obj.id,
+                user_ip=user_ip,
+                user_agent=user_agent
+            )
+            logger.info(f"Redirect: {link} -> {real_link} | IP: {user_ip}")
 
         return Response(status_code=status.HTTP_301_MOVED_PERMANENTLY, headers={"Location": real_link})
 
