@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, ForeignKey, Integer, Float
+from sqlalchemy import Column, String, ForeignKey, Integer, DateTime, func
 from infrastructure.database import Base
 
 class Link(Base):
@@ -7,6 +7,7 @@ class Link(Base):
     id = Column(Integer, primary_key=True, index=True)
     real_link = Column(String, index=True)
     short_link = Column(String, unique=True, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 class Usage(Base):
     __tablename__ = 'usage'
@@ -14,6 +15,5 @@ class Usage(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_ip = Column(String, index=True)
     user_agent = Column(String, index=True)
-    created_at = Column(Float, index=True)
     count = Column(Integer, default=0, index=True)
     link_id = Column(Integer, ForeignKey('link.id', ondelete='CASCADE'))

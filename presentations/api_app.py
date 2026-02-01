@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from requests import RequestException
 
 from infrastructure.database import db_dependency
+from infrastructure.models import Usage
 
 from services.link_service import LinkService
 import time
@@ -13,13 +14,20 @@ from loguru import logger
 # TODO:
 def create_app() -> FastAPI:
     app = FastAPI()
-    # short_link_service = LinkService(db_dependency)
 
     class PutLink(BaseModel):
         link: str
 
     class LinkResponse(BaseModel):
         link: str
+
+    class UsageOut(BaseModel):
+        user_ip: str
+        user_agent: str
+        count: int
+
+        class Config:
+            from_attributes = True
 
     def _service_link_to_real(short_link: str) -> str:
         return f"http://localhost:8000/{short_link}"
@@ -39,20 +47,7 @@ def create_app() -> FastAPI:
             is_valid = True if test_get.status_code < 400 else False
 
             if is_valid:
-                ##
-                user_ip = request.client.host
-                user_agent = request.headers.get('user-agent', '')
-                t0 = time.time()
-                elapsed_ms = round((time.time() - t0) * 1000, 2)
-
-                short_link = short_link_service.create_link(
-                    real_link=url,
-                    user_ip=request.client.host,  # или как вы получаете IP
-                    user_agent=request.headers.get("user-agent", ""),
-                    created_at=time.time()  # передаем текущее время
-                )
-
-                ##
+                short_link = short_link_service.create_link(real_link=url)
                 return LinkResponse(link=_service_link_to_real(short_link))
             else:
                 raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT)
@@ -97,5 +92,15 @@ def create_app() -> FastAPI:
             logger.info(f"Redirect: {link} -> {real_link} | IP: {user_ip}")
 
         return Response(status_code=status.HTTP_301_MOVED_PERMANENTLY, headers={"Location": real_link})
+
+    @app.get("/{link}/statistics", response_model=list[UsageOut])
+    def get_stats(link: str, db: db_dependency) -> list[Usage]:
+        short_link_service = LinkService(db)
+        link_obj = short_link_service.get_link_by_short(link)
+
+        if not link_obj:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+
+        return short_link_service.get_link_usage(link_obj.id)
 
     return app

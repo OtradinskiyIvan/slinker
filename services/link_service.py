@@ -11,8 +11,7 @@ class LinkService:
     def __init__(self, db: Session) -> None:
         self.db = db
 
-    def create_link(self, real_link: str, user_ip: str,
-                    user_agent: str, created_at: float) -> str:
+    def create_link(self, real_link: str) -> str:
 
         existing_link = self.db.query(Link).filter(
             Link.real_link == real_link
@@ -29,18 +28,8 @@ class LinkService:
                 short_link=short_link
             )
             self.db.add(db_link)
-            self.db.flush()  # 🔥 получаем db_link.id БЕЗ commit
-
-            usage = Usage(
-                link_id=db_link.id,
-                user_ip=user_ip,
-                user_agent=user_agent,
-                created_at=created_at,
-                count=0
-            )
-            self.db.add(usage)
-
-            self.db.commit()  # 💥 обе таблицы сразу
+            self.db.commit()
+            self.db.refresh(db_link)
             return short_link
 
         except IntegrityError:
@@ -76,7 +65,7 @@ class LinkService:
     def get_link_usage(self, link_id: int) -> list[Usage]:
         return self.db.query(Usage).filter(
             Usage.link_id == link_id
-        ).order_by(Usage.accessed_at.desc()).all()
+        ).order_by(Usage.id.desc()).all()
 
     def get_link_usage_count(self, link_id) -> int:
         result = self.db.query(Usage.count).filter(
