@@ -73,3 +73,15 @@ class LinkService:
         ).scalar()
         logger.debug('cnt res: {}', result)
         return result if result is not None else 0
+
+    def get_link_usage_paginated(
+            self, link_id: int, offset: int, limit: int
+    ) -> list[Usage]:
+        return (
+            self.db.query(Usage)
+            .filter(Usage.link_id == link_id)
+            .order_by(Usage.id.desc())
+            .offset(offset)
+            .limit(limit)
+            .all()
+        )

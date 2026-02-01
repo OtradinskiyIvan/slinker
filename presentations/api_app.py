@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException, Response, status, Request
 from pydantic import BaseModel
 from requests import RequestException
+from typing import List
 
 from infrastructure.database import db_dependency
 from infrastructure.models import Usage
@@ -28,6 +29,13 @@ def create_app() -> FastAPI:
 
         class Config:
             from_attributes = True
+
+    class PaginatedUsage(BaseModel):
+        page: int
+        size: int
+        total: int
+        items: List[UsageOut]
+
 
     def _service_link_to_real(short_link: str) -> str:
         return f"http://localhost:8000/{short_link}"
@@ -93,14 +101,36 @@ def create_app() -> FastAPI:
 
         return Response(status_code=status.HTTP_301_MOVED_PERMANENTLY, headers={"Location": real_link})
 
-    @app.get("/{link}/statistics", response_model=list[UsageOut])
-    def get_stats(link: str, db: db_dependency) -> list[Usage]:
-        short_link_service = LinkService(db)
-        link_obj = short_link_service.get_link_by_short(link)
+    from fastapi import Query
 
+    @app.get("/{link}/statistics", response_model=PaginatedUsage)
+    def get_stats(
+            link: str,
+            db: db_dependency,
+            page: int = Query(1, ge=1),
+            size: int = Query(20, ge=1, le=100)
+    ):
+        service = LinkService(db)
+
+        link_obj = service.get_link_by_short(link)
         if not link_obj:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+            raise HTTPException(status_code=404, detail="Link not found")
 
-        return short_link_service.get_link_usage(link_obj.id)
+        offset = (page - 1) * size
+
+        items = service.get_link_usage_paginated(
+            link_id=link_obj.id,
+            offset=offset,
+            limit=size
+        )
+
+        total = service.get_link_usage_count(link_obj.id)
+
+        return {
+            "page": page,
+            "size": size,
+            "total": total,
+            "items": items
+        }
 
     return app
