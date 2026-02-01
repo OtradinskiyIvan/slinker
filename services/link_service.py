@@ -11,50 +11,41 @@ class LinkService:
     def __init__(self, db: Session) -> None:
         self.db = db
 
-    def create_link(self, real_link: str) -> str:
+    def create_link(self, real_link: str, user_ip: str,
+                    user_agent: str, created_at: float) -> str:
+
         existing_link = self.db.query(Link).filter(
             Link.real_link == real_link
         ).first()
 
         if existing_link:
-            logger.info(f"Link already exists: {existing_link.short_link} -> {real_link}")
             return existing_link.short_link
 
-        attempts = 0
-        max_attempts = 3
+        short_link = random_alfanum(5)
 
-        while attempts < max_attempts:
-            short_link = random_alfanum(5)
+        try:
+            db_link = Link(
+                real_link=real_link,
+                short_link=short_link
+            )
+            self.db.add(db_link)
+            self.db.flush()  # 🔥 получаем db_link.id БЕЗ commit
 
-            existing_short = self.db.query(Link).filter(
-                Link.short_link == short_link
-            ).first()
+            usage = Usage(
+                link_id=db_link.id,
+                user_ip=user_ip,
+                user_agent=user_agent,
+                created_at=created_at,
+                count=0
+            )
+            self.db.add(usage)
 
-            if not existing_short:
-                try:
-                    db_link = Link(
-                        real_link=real_link,
-                        short_link=short_link
-                    )
-                    self.db.add(db_link)
-                    self.db.commit()
-                    self.db.refresh(db_link)
-                    logger.info(f"Created new link: {short_link} -> {real_link}")
-                    return short_link
-                except IntegrityError:
-                    self.db.rollback()
-                    logger.warning(f"Collision for short link: {short_link}")
-                    attempts += 1
-            else:
-                attempts += 1
+            self.db.commit()  # 💥 обе таблицы сразу
+            return short_link
 
-        short_link = random_alfanum(8)
-        db_link = Link(real_link=real_link, short_link=short_link)
-        self.db.add(db_link)
-        self.db.commit()
-        self.db.refresh(db_link)
-        logger.info(f"Created link with longer hash: {short_link} -> {real_link}")
-        return short_link
+        except IntegrityError:
+            self.db.rollback()
+            raise
 
     def get_real_link(self, short_link: str) -> str | None:
         link = self.db.query(Link).filter(
@@ -64,11 +55,15 @@ class LinkService:
         if link: return link.real_link
         return None
 
-    def log_usage(self, link_id: int, user_ip: str, user_agent: str) -> None:
+    def log_usage(
+            self, link_id: int, user_ip: str,
+            user_agent: str, usage_count: int
+    ) -> None:
         usage = Usage(
             link_id=link_id,
             user_ip=user_ip,
-            user_agent=user_agent
+            user_agent=user_agent,
+            count=usage_count
         )
         self.db.add(usage)
         self.db.commit()
@@ -83,21 +78,9 @@ class LinkService:
             Usage.link_id == link_id
         ).order_by(Usage.accessed_at.desc()).all()
 
-
-
-"""from utils.utils_random import random_alfanum
-
-
-class LinkService:
-    def __init__(self) -> None:
-        self.short_link_to_real_link: dict[str, str] = {}
-
-    def create_link(self, link: str) -> str:
-        short_link = random_alfanum(5)
-        self.short_link_to_real_link[short_link] = link
-
-        return short_link
-
-    def get_real_link(self, link: str) -> str | None:
-        return self.short_link_to_real_link.get(link)
-"""
+    def get_link_usage_count(self, link_id) -> int:
+        result = self.db.query(Usage.count).filter(
+            Usage.link_id == link_id
+        ).scalar()
+        logger.debug('cnt res: {}', result)
+        return result if result is not None else 0

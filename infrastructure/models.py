@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, ForeignKey, Integer
+from sqlalchemy import Column, String, ForeignKey, Integer, Float
 from infrastructure.database import Base
 
 class Link(Base):
@@ -14,4 +14,6 @@ class Usage(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_ip = Column(String, index=True)
     user_agent = Column(String, index=True)
+    created_at = Column(Float, index=True)
+    count = Column(Integer, default=0, index=True)
     link_id = Column(Integer, ForeignKey('link.id', ondelete='CASCADE'))

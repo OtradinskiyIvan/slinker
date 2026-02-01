@@ -2,13 +2,7 @@ from fastapi import FastAPI, HTTPException, Response, status, Request
 from pydantic import BaseModel
 from requests import RequestException
 
-from sqlalchemy.orm import Session
-
 from infrastructure.database import db_dependency
-from typing import Annotated
-from fastapi import Depends
-from infrastructure.database import get_db
-# from infrastructure.database import db_dependency, get_db
 
 from services.link_service import LinkService
 import time
@@ -17,9 +11,6 @@ from loguru import logger
 
 
 # TODO:
-
-db_dependency = Annotated[Session, Depends(get_db)]
-
 def create_app() -> FastAPI:
     app = FastAPI()
     # short_link_service = LinkService(db_dependency)
@@ -36,7 +27,7 @@ def create_app() -> FastAPI:
     @app.post("/link")
     def create_link(
             put_link_request: PutLink,
-            db : db_dependency
+            db : db_dependency, request: Request
     ) -> LinkResponse:
         short_link_service = LinkService(db)
 
@@ -48,8 +39,21 @@ def create_app() -> FastAPI:
             is_valid = True if test_get.status_code < 400 else False
 
             if is_valid:
-                short_link = short_link_service.create_link(url)
-                return PutLink(link=_service_link_to_real(short_link))
+                ##
+                user_ip = request.client.host
+                user_agent = request.headers.get('user-agent', '')
+                t0 = time.time()
+                elapsed_ms = round((time.time() - t0) * 1000, 2)
+
+                short_link = short_link_service.create_link(
+                    real_link=url,
+                    user_ip=request.client.host,  # или как вы получаете IP
+                    user_agent=request.headers.get("user-agent", ""),
+                    created_at=time.time()  # передаем текущее время
+                )
+
+                ##
+                return LinkResponse(link=_service_link_to_real(short_link))
             else:
                 raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT)
         except RequestException as e:
@@ -80,14 +84,15 @@ def create_app() -> FastAPI:
 
         link_obj = short_link_service.get_link_by_short(link)
         if link_obj:
-            # Логируем использование
             user_ip = request.client.host if request.client else "unknown"
             user_agent = request.headers.get('user-agent', '')
 
+            usage_count = short_link_service.get_link_usage_count(link_obj.id)
             short_link_service.log_usage(
                 link_id=link_obj.id,
                 user_ip=user_ip,
-                user_agent=user_agent
+                user_agent=user_agent,
+                usage_count=(usage_count + 1)
             )
             logger.info(f"Redirect: {link} -> {real_link} | IP: {user_ip}")
 

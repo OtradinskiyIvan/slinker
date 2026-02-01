@@ -1,7 +1,7 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.sql.annotation import Annotated
+from typing import Annotated
 from fastapi import Depends
 
 URL_DB = 'postgresql://postgres:adminuser@localhost:5432/slinker'
