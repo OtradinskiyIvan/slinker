@@ -15,5 +15,5 @@ class Usage(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_ip = Column(String, index=True)
     user_agent = Column(String, index=True)
-    count = Column(Integer, default=0, index=True)
     link_id = Column(Integer, ForeignKey('link.id', ondelete='CASCADE'))
+    used_at = Column(DateTime(timezone=True), server_default=func.now())

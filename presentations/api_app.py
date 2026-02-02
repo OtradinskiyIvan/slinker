@@ -1,18 +1,20 @@
-from fastapi import FastAPI, HTTPException, Response, status, Request
+from fastapi import FastAPI, HTTPException, Response, status, Request, Query
 from pydantic import BaseModel
 from requests import RequestException
 from typing import List
 
-from infrastructure.database import db_dependency
+from infrastructure.database import db_dependency, SessionLocal
 from infrastructure.models import Usage
 
 from services.link_service import LinkService
 import time
+from datetime import datetime
 import requests
 from loguru import logger
 
+from starlette.background import BackgroundTasks
 
-# TODO:
+# TODO: monitoring all usages by time (add new table?)
 def create_app() -> FastAPI:
     app = FastAPI()
 
@@ -25,7 +27,7 @@ def create_app() -> FastAPI:
     class UsageOut(BaseModel):
         user_ip: str
         user_agent: str
-        count: int
+        used_at: datetime
 
         class Config:
             from_attributes = True
@@ -63,20 +65,6 @@ def create_app() -> FastAPI:
             logger.exception("connection via {} url failed. Error: {}", inp_link, e)
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT)
 
-
-    @app.middleware("http")
-    async def add_process_time_header(request: Request, call_next) -> Response:
-        t0 = time.time()
-
-        response = await call_next(request)
-
-        elapsed_ms = round((time.time() - t0) * 1000, 2)
-        response.headers["X-Process-Time"] = str(elapsed_ms)
-        logger.debug("{} {} done in {}ms", request.method, request.url, elapsed_ms)
-
-        return response
-
-
     @app.get("/{link}")
     def get_link(link: str, request: Request, db: db_dependency) -> Response:
         short_link_service = LinkService(db)
@@ -85,23 +73,19 @@ def create_app() -> FastAPI:
         if real_link is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Short link not found:(")
 
-        link_obj = short_link_service.get_link_by_short(link)
+        '''link_obj = short_link_service.get_link_by_short(link)
         if link_obj:
             user_ip = request.client.host if request.client else "unknown"
             user_agent = request.headers.get('user-agent', '')
 
-            usage_count = short_link_service.get_link_usage_count(link_obj.id)
             short_link_service.log_usage(
                 link_id=link_obj.id,
                 user_ip=user_ip,
-                user_agent=user_agent,
-                usage_count=(usage_count + 1)
+                user_agent=user_agent
             )
-            logger.info(f"Redirect: {link} -> {real_link} | IP: {user_ip}")
+            logger.info(f"Redirect: {link} -> {real_link} | IP: {user_ip}")'''
 
-        return Response(status_code=status.HTTP_301_MOVED_PERMANENTLY, headers={"Location": real_link})
-
-    from fastapi import Query
+        return Response(status_code=status.HTTP_307_TEMPORARY_REDIRECT, headers={"Location": real_link})
 
     @app.get("/{link}/statistics", response_model=PaginatedUsage)
     def get_stats(
@@ -132,5 +116,55 @@ def create_app() -> FastAPI:
             "total": total,
             "items": items
         }
+
+    @app.middleware("http")
+    async def add_process_time_header(request: Request, call_next) -> Response:
+        t0 = time.time()
+
+        response = await call_next(request)
+
+        elapsed_ms = round((time.time() - t0) * 1000, 2)
+        response.headers["X-Process-Time"] = str(elapsed_ms)
+        logger.debug("{} {} done in {}ms", request.method, request.url, elapsed_ms)
+
+        return response
+
+    @app.middleware('http')
+    async def monitor_slink_usage(request: Request, call_next) -> Response:
+        response = await call_next(request)
+
+        if response.status_code not in (302, 307):
+            return response
+
+
+        short_link = request.path_params.get('link')
+        if not short_link:
+            return response
+
+
+        user_ip = request.client.host if request.client.host else 'unknown'
+        user_agent = request.headers.get('user-agent', '')
+
+        def log_usage():
+            db = SessionLocal()
+            try:
+                service = LinkService(db)
+                link_id = service.get_link_by_short(short_link).id
+
+                if not link_id:
+                    return
+                service.log_usage(
+                    link_id=link_id,
+                    user_ip=user_ip,
+                    user_agent=user_agent
+                )
+                # logger.info('u.a.: {}', user_agent)
+            finally:
+                db.close()
+
+        response.background = BackgroundTasks()
+        response.background.add_task(log_usage)
+
+        return response
 
     return app

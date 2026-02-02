@@ -1,3 +1,4 @@
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from infrastructure.models import Link, Usage
@@ -44,15 +45,11 @@ class LinkService:
         if link: return link.real_link
         return None
 
-    def log_usage(
-            self, link_id: int, user_ip: str,
-            user_agent: str, usage_count: int
-    ) -> None:
+    def log_usage(self, link_id: int, user_ip: str, user_agent: str) -> None:
         usage = Usage(
             link_id=link_id,
             user_ip=user_ip,
-            user_agent=user_agent,
-            count=usage_count
+            user_agent=user_agent
         )
         self.db.add(usage)
         self.db.commit()
@@ -68,15 +65,18 @@ class LinkService:
         ).order_by(Usage.id.desc()).all()
 
     def get_link_usage_count(self, link_id) -> int:
-        result = self.db.query(Usage.count).filter(
+        result = self.db.query(func.count(Usage.id)).filter(
             Usage.link_id == link_id
         ).scalar()
+
         logger.debug('cnt res: {}', result)
         return result if result is not None else 0
 
     def get_link_usage_paginated(
             self, link_id: int, offset: int, limit: int
     ) -> list[Usage]:
+
+
         return (
             self.db.query(Usage)
             .filter(Usage.link_id == link_id)

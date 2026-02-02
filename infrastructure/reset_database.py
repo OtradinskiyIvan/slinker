@@ -2,7 +2,6 @@ import sys
 import os
 import models
 
-# Добавляем путь к проекту
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from infrastructure.database import engine, Base
